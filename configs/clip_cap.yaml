@@ -1,0 +1,27 @@
+clip_model: ViT-B/32
+embed_dim: 512
+proj_dim: 768
+
+decoder:
+  layers: 6
+  heads: 8
+  ff_dim: 2048
+  dropout: 0.1
+
+training:
+  epochs: 30
+  batch_size: 64
+  lr: 3.0e-4
+  scheduler: cosine
+  warmup_steps: 500
+  max_len: 40
+  label_smoothing: 0.1
+
+data:
+  train_ann: data/annotations/captions_train2017.json
+  val_ann: data/annotations/captions_val2017.json
+  embedding_cache: data/embeddings/
+
+logging:
+  checkpoint_dir: outputs/logs/
+  save_best_only: true

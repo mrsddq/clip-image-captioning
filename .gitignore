@@ -1,0 +1,8 @@
+data/
+outputs/logs/*.pt
+outputs/logs/*.pth
+__pycache__/
+*.pyc
+.DS_Store
+.env
+wandb/
