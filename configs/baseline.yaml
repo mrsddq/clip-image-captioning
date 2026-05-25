@@ -4,12 +4,11 @@ embed_dim: 512
 proj_dim: 768
 
 decoder:
-  type: transformer
-  layers: 6
-  heads: 8
-  ff_dim: 2048
-  dropout: 0.1
-  beam_size: 3
+  type: lstm
+  hidden_dim: 512
+  layers: 2
+  dropout: 0.2
+  beam_size: 1
 
 training:
   epochs: 30

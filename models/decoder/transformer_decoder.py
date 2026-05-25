@@ -35,3 +35,26 @@ class CaptionDecoder(nn.Module):
             if next_tok.item() == eos_id:
                 break
         return tokens[0].tolist()
+
+    @torch.no_grad()
+    def beam_search(self, clip_embed, bos_id, eos_id, device, num_beams=3):
+        memory = self.proj(clip_embed.unsqueeze(0)).unsqueeze(1)
+        beams = [(torch.tensor([[bos_id]], device=device), 0.0)]
+        for _ in range(self.max_len):
+            candidates = []
+            for tokens, score in beams:
+                if tokens[0, -1].item() == eos_id:
+                    candidates.append((tokens, score))
+                    continue
+                pos = torch.arange(tokens.shape[1], device=device).unsqueeze(0)
+                x = self.token_emb(tokens) + self.pos_emb(pos)
+                logits = self.head(self.decoder(x, memory))[:, -1]
+                log_probs = torch.log_softmax(logits, dim=-1)
+                values, indices = torch.topk(log_probs, k=num_beams, dim=-1)
+                for value, index in zip(values[0], indices[0]):
+                    next_tokens = torch.cat([tokens, index.view(1, 1)], dim=1)
+                    candidates.append((next_tokens, score + float(value)))
+            beams = sorted(candidates, key=lambda item: item[1] / item[0].shape[1], reverse=True)[:num_beams]
+            if all(tokens[0, -1].item() == eos_id for tokens, _ in beams):
+                break
+        return beams[0][0][0].tolist()
