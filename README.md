@@ -1,5 +1,7 @@
 # CLIP-Based Image Captioning
 
+[![CI](https://github.com/mrsddq/clip-image-captioning/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsddq/clip-image-captioning/actions/workflows/ci.yml)
+
 Portfolio-ready image captioning project using CLIP-style visual embeddings and a Transformer decoder.
 
 The repository provides model structure, configs, and train/evaluate/infer entry points. It does not commit COCO data, model weights, or unverified captioning metrics.
@@ -17,6 +19,12 @@ The repository provides model structure, configs, and train/evaluate/infer entry
 ```text
 configs/
   clip_cap.yaml
+docs/
+  ABLATION_PLAN.md
+  ARCHITECTURE_RATIONALE.md
+  DEPLOYMENT_NOTES.md
+  REPRODUCIBILITY.md
+  RESULTS_TEMPLATE.md
 models/
   encoder/clip_encoder.py
   decoder/transformer_decoder.py
@@ -70,6 +78,15 @@ python -m scripts.infer --checkpoint outputs/logs/best_model.pt --image path/to/
 ## Results
 
 No verified public metrics are committed yet. Record real BLEU, METEOR, CIDEr, and qualitative examples in [docs/RESULTS_TEMPLATE.md](docs/RESULTS_TEMPLATE.md).
+
+Research support docs:
+
+- [Reproducibility Plan](docs/REPRODUCIBILITY.md)
+- [Architecture Rationale](docs/ARCHITECTURE_RATIONALE.md)
+- [Ablation Plan](docs/ABLATION_PLAN.md)
+- [Deployment Notes](docs/DEPLOYMENT_NOTES.md)
+
+`outputs/metrics/smoke_test_results.csv` is a schema artifact only, not a benchmark.
 
 Recommended artifacts:
 
