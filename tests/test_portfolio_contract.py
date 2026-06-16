@@ -28,6 +28,12 @@ class PortfolioContractTests(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, config)
 
+    def test_caption_config_documents_safe_generation_bounds(self):
+        config = (ROOT / "configs/clip_cap.yaml").read_text(encoding="utf-8")
+        for needle in ["beam_size:", "max_len:", "label_smoothing:", "save_best_only:"]:
+            with self.subTest(needle=needle):
+                self.assertIn(needle, config)
+
 
 if __name__ == "__main__":
     unittest.main()
