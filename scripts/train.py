@@ -52,6 +52,8 @@ def run_epoch(model, loader, device, optimizer=None):
         with torch.set_grad_enabled(optimizer is not None):
             logits = model(batch["clip_embed"].to(device), batch["input_ids"][:, :-1].to(device))
             loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), labels.reshape(-1), ignore_index=-100, reduction="sum")
+            if not torch.isfinite(loss):
+                raise ValueError("Nonfinite caption loss; checkpoint was not updated")
             count = int((labels != -100).sum())
             if optimizer is not None:
                 optimizer.zero_grad(set_to_none=True)

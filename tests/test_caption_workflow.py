@@ -64,3 +64,14 @@ def test_offline_train_checkpoint_evaluate(tmp_path, decoder_type):
     config.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError, match="overlap"):
         main(str(config))
+
+
+
+def test_nonfinite_model_loss_fails_before_checkpoint_selection():
+    from scripts.train import run_epoch
+    class Broken(torch.nn.Module):
+        def forward(self, embeddings, ids):
+            return torch.full((*ids.shape, 259), float("nan"))
+    batch = {"clip_embed": torch.zeros(1, 4), "input_ids": torch.tensor([[1, 4, 2]]), "labels": torch.tensor([[1, 4, 2]])}
+    with pytest.raises(ValueError, match="Nonfinite"):
+        run_epoch(Broken(), [batch], "cpu")
