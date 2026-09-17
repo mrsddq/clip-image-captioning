@@ -40,4 +40,4 @@ jobs:
       - name: Show inference help
         run: docker run --rm clip-image-captioning:smoke --help
       - name: Run tests in Docker
-        run: docker run --rm --entrypoint python clip-image-captioning:smoke -m unittest discover -s tests
+        run: docker run --rm --entrypoint python clip-image-captioning:smoke -m pytest -q
