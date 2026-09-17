@@ -44,48 +44,64 @@ def build_decoder(cfg: dict, vocab_size: int):
     )
 
 
+def run_epoch(model, loader, device, optimizer=None):
+    model.train(optimizer is not None)
+    loss_sum, token_count = 0.0, 0
+    for batch in loader:
+        labels = batch["labels"][:, 1:].to(device)
+        with torch.set_grad_enabled(optimizer is not None):
+            logits = model(batch["clip_embed"].to(device), batch["input_ids"][:, :-1].to(device))
+            loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), labels.reshape(-1), ignore_index=-100, reduction="sum")
+            count = int((labels != -100).sum())
+            if optimizer is not None:
+                optimizer.zero_grad(set_to_none=True)
+                (loss / count).backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+        loss_sum += float(loss.detach())
+        token_count += count
+    if not token_count:
+        raise ValueError("No caption tokens available")
+    return loss_sum / token_count
+
+
 def main(config: str) -> Path:
+    from data import ByteTokenizer
     cfg = yaml.safe_load(Path(config).read_text(encoding="utf-8"))
     set_seed(int(cfg.get("seed", 42)))
-    try:
-        from transformers import GPT2TokenizerFast
-    except ImportError as exc:
-        raise ImportError("transformers is required for tokenization.") from exc
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    tokenizer.pad_token = tokenizer.eos_token
-
-    train_dataset = COCOCaptionDataset(
-        cfg["data"]["train_ann"],
-        Path(cfg["data"]["embedding_cache"]) / "train",
-        tokenizer,
-        max_len=int(cfg["training"]["max_len"]),
-    )
-    loader = DataLoader(train_dataset, batch_size=int(cfg["training"]["batch_size"]), shuffle=True)
+    if int(cfg["training"]["epochs"]) < 1:
+        raise ValueError("epochs must be positive")
+    if float(cfg["training"].get("label_smoothing", 0.0)) != 0:
+        raise ValueError("Only label_smoothing=0 is supported by token NLL training")
+    if int(cfg["decoder"].get("beam_size", 1)) != 1:
+        raise ValueError("Only greedy decoding (beam_size=1) is supported")
+    tokenizer = ByteTokenizer()
+    loaders = {}
+    for split in ("train", "val"):
+        dataset = COCOCaptionDataset(cfg["data"][f"{split}_ann"], Path(cfg["data"]["embedding_cache"]) / split,
+                                     tokenizer, int(cfg["training"]["max_len"]), int(cfg["embed_dim"]))
+        loaders[split] = DataLoader(dataset, batch_size=int(cfg["training"]["batch_size"]), shuffle=split == "train")
+    train_ids = {row["image_id"] for row in loaders["train"].dataset.samples}
+    if train_ids & {row["image_id"] for row in loaders["val"].dataset.samples}:
+        raise ValueError("Train and validation image IDs overlap")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_decoder(cfg, len(tokenizer)).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(cfg["training"]["lr"]))
-    loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100, label_smoothing=float(cfg["training"].get("label_smoothing", 0.0)))
-
-    checkpoint_dir = Path(cfg["logging"]["checkpoint_dir"])
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    for _epoch in range(int(cfg["training"]["epochs"])):
-        model.train()
-        for batch in loader:
-            clip_embed = batch["clip_embed"].to(device)
-            input_ids = batch["input_ids"].to(device)
-            labels = batch["labels"].to(device)
-            logits = model(clip_embed, input_ids[:, :-1])
-            loss = loss_fn(logits.reshape(-1, logits.shape[-1]), labels[:, 1:].reshape(-1))
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
-    output_path = checkpoint_dir / "caption_decoder.pt"
-    torch.save(model.state_dict(), output_path)
-    return output_path
+    output = Path(cfg["logging"]["checkpoint_dir"]) / "caption_decoder.pt"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    best_loss = float("inf")
+    for epoch in range(int(cfg["training"]["epochs"])):
+        train_loss = run_epoch(model, loaders["train"], device, optimizer)
+        val_loss = run_epoch(model, loaders["val"], device)
+        print(f"epoch={epoch + 1} train_token_nll={train_loss:.6f} val_token_nll={val_loss:.6f}")
+        if val_loss < best_loss:
+            best_loss = val_loss
+            torch.save({"format_version": 1, "tokenizer": "utf8-byte-v1", "config": cfg,
+                        "state_dict": model.state_dict(), "epoch": epoch + 1, "val_token_nll": val_loss}, output)
+    return output
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train CLIP caption decoder.")
+    parser = argparse.ArgumentParser(description="Train a caption decoder on cached CLIP embeddings.")
     parser.add_argument("--config", default="configs/clip_cap.yaml")
-    args = parser.parse_args()
-    print(main(args.config))
+    print(main(parser.parse_args().config))
