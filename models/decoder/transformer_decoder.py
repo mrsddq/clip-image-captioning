@@ -16,6 +16,8 @@ class CaptionDecoder(nn.Module):
         self.max_len = max_len
 
     def forward(self, clip_embeds, token_ids, tgt_mask=None, tgt_key_padding_mask=None):
+        if tgt_mask is None:
+            tgt_mask = torch.triu(torch.ones(token_ids.shape[1], token_ids.shape[1], device=token_ids.device, dtype=torch.bool), diagonal=1)
         memory = self.proj(clip_embeds).unsqueeze(1)
         B, T = token_ids.shape
         pos = torch.arange(T, device=token_ids.device).unsqueeze(0).expand(B, -1)
@@ -25,36 +27,15 @@ class CaptionDecoder(nn.Module):
 
     @torch.no_grad()
     def generate(self, clip_embeds, bos_id, eos_id, device):
-        memory = self.proj(clip_embeds).unsqueeze(1)
+        if clip_embeds.shape[0] != 1:
+            raise ValueError("Greedy generation expects one image embedding")
         tokens = torch.tensor([[bos_id]], device=device)
-        for _ in range(self.max_len):
-            pos = torch.arange(tokens.shape[1], device=device).unsqueeze(0)
-            x = self.token_emb(tokens) + self.pos_emb(pos)
-            next_tok = self.head(self.decoder(x, memory))[:, -1].argmax(-1, keepdim=True)
+        for _ in range(self.max_len - 1):
+            logits = self(clip_embeds, tokens)[:, -1]
+            logits[:, 0] = -torch.inf  # PAD is never a caption token
+            logits[:, bos_id] = -torch.inf
+            next_tok = logits.argmax(-1, keepdim=True)
             tokens = torch.cat([tokens, next_tok], dim=1)
             if next_tok.item() == eos_id:
                 break
         return tokens[0].tolist()
-
-    @torch.no_grad()
-    def beam_search(self, clip_embed, bos_id, eos_id, device, num_beams=3):
-        memory = self.proj(clip_embed.unsqueeze(0)).unsqueeze(1)
-        beams = [(torch.tensor([[bos_id]], device=device), 0.0)]
-        for _ in range(self.max_len):
-            candidates = []
-            for tokens, score in beams:
-                if tokens[0, -1].item() == eos_id:
-                    candidates.append((tokens, score))
-                    continue
-                pos = torch.arange(tokens.shape[1], device=device).unsqueeze(0)
-                x = self.token_emb(tokens) + self.pos_emb(pos)
-                logits = self.head(self.decoder(x, memory))[:, -1]
-                log_probs = torch.log_softmax(logits, dim=-1)
-                values, indices = torch.topk(log_probs, k=num_beams, dim=-1)
-                for value, index in zip(values[0], indices[0]):
-                    next_tokens = torch.cat([tokens, index.view(1, 1)], dim=1)
-                    candidates.append((next_tokens, score + float(value)))
-            beams = sorted(candidates, key=lambda item: item[1] / item[0].shape[1], reverse=True)[:num_beams]
-            if all(tokens[0, -1].item() == eos_id for tokens, _ in beams):
-                break
-        return beams[0][0][0].tolist()
